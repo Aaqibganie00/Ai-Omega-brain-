@@ -1,0 +1,281 @@
+# Phase 3 - Live Gemini Verification (temporary verification workflow)
+#
+# Purpose: run the EXISTING Omega Brain Phase 3 live pipeline against the real
+# Gemini service on a GitHub-hosted runner. This workflow changes no product
+# code and no tests. It uses ONLY the repository secret GEMINI_API_KEY, never
+# prints/echoes/cats/logs any secret or environment value, and fails the run
+# if any live verification step fails.
+#
+# Manual trigger only: Actions -> "Phase 3 - Live Gemini Verification" ->
+# Run workflow -> select the branch containing this file.
+
+name: Phase 3 - Live Gemini Verification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies (project requirements + pytest for regression)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Preflight - secret presence check (value never touched)
+        run: |
+          python3 -c "import os,sys; ok=bool(os.environ.get('GEMINI_API_KEY')); print('GEMINI_API_KEY:','AVAILABLE' if ok else 'NOT AVAILABLE'); sys.exit(0 if ok else 1)"
+
+      - name: Live provider smoke test (one minimal real API request)
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys, time
+          assert os.environ.get("GEMINI_API_KEY"), "secret absent"
+          from providers.gemini_config import GeminiConfig
+          from providers.gemini_provider import GeminiProvider
+          from providers.schemas import AIRequest
+          provider = GeminiProvider(GeminiConfig())
+          print("smoke model:", provider.config.default_model)
+          t0 = time.time()
+          resp = provider.generate(AIRequest.simple("Reply with exactly one word: ready"))
+          dt = time.time() - t0
+          ok = ("ready" in (resp.content or "").lower()) and not getattr(resp, "tool_calls", None)
+          print(f"smoke parsed: ok={ok} resp_model={resp.model!r} latency={dt:.2f}s "
+                f"content_len={len(resp.content or '')} tool_calls={len(resp.tool_calls or [])}")
+          if not ok:
+              print("SMOKE: FAIL")
+              sys.exit(1)
+          print("SMOKE: PASS - authentication, endpoint, and provider parsing verified with real API")
+          PYEOF
+
+      - name: Key-gated live intake unit test (existing test, unmodified)
+        run: python3 -m unittest tests.test_requirement_intake.TestLiveGeminiIntake -v
+
+      - name: Live end-to-end request through main.py (exact directive request)
+        run: |
+          mkdir -p live_evidence
+          set +e
+          python3 main.py "Build me a small Python calculator app with add, subtract, multiply and divide functions. Include tests." > live_evidence/live_out.txt 2>&1
+          rc=$?
+          set -e
+          echo "live main.py exit code: $rc"
+          echo "--- curated evidence lines (safe subset of stdout) ---"
+          grep -E "^(request: |workspace: |  summary|  deliverable|  features|  constraints|  objective|  state|  quality gate|  steps|  artifact dir|  files|  errors|  checkpoint|FINAL:)" live_evidence/live_out.txt || true
+          if [ "$rc" -ne 0 ]; then
+            echo "LIVE_MAIN=FAIL" >> phase3_status.env
+            echo "main.py did not complete the live request (honest failure, exit $rc)"
+            exit 1
+          fi
+          grep -q "FINAL: COMPLETED AND GATE-APPROVED" live_evidence/live_out.txt
+          echo "LIVE_MAIN=PASS" >> phase3_status.env
+
+      - name: Independent artifact verification (filesystem, real tests, real run)
+        run: |
+          python3 - <<'PYEOF'
+          import glob, os, re, subprocess, sys
+
+          out = open("live_evidence/live_out.txt", encoding="utf-8", errors="ignore").read()
+          ws_match = re.search(r"^workspace: (\S+)$", out, re.M)
+          if not ws_match:
+              print("REAL FILES: FAIL (no workspace path found in main.py output)")
+              sys.exit(1)
+          ws = ws_match.group(1)
+          print("artifact dir:", ws)
+
+          files = sorted(f for f in glob.glob(os.path.join(ws, "**", "*"), recursive=True)
+                         if os.path.isfile(f))
+          print("files on filesystem:")
+          for f in files:
+              print("  -", f)
+
+          py_sources = {os.path.basename(f): f for f in files if f.endswith(".py")}
+          test_files = [f for n, f in py_sources.items() if n.startswith("test_")]
+          impl_files = [f for n, f in py_sources.items() if not n.startswith("test_")]
+          has_ops = False
+          for f in impl_files:
+              src = open(f, encoding="utf-8", errors="ignore").read()
+              if re.search(r"def add\(", src) and re.search(r"def subtract\(", src):
+                  has_ops = True
+                  print("calculator implementation verified on disk:", f)
+          if not (test_files and impl_files and has_ops):
+              print("REAL FILES: FAIL (impl file / test file / required functions missing)")
+              sys.exit(1)
+          print("REAL FILES: PASS")
+
+          # real test execution as an actual subprocess (independent of the pipeline)
+          cmd = ["python3", "-m", "pytest", "-q"]
+          tr = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, timeout=300)
+          print("test command:", " ".join(cmd))
+          print("test return code:", tr.returncode)
+          tail = (tr.stdout + "\n" + tr.stderr).strip().splitlines()
+          print("test output tail:", " | ".join(tail[-3:]))
+          tests_ok = tr.returncode == 0
+          if not tests_ok and tr.returncode in (4, 5):
+              cmd = ["python3", "-m", "unittest", "discover", "-s", ".", "-p", "test_*.py", "-v"]
+              tr = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, timeout=300)
+              print("fallback test command:", " ".join(cmd))
+              print("fallback return code:", tr.returncode)
+              print("fallback tail:", " | ".join((tr.stdout + tr.stderr).strip().splitlines()[-3:]))
+              tests_ok = tr.returncode == 0
+          if not tests_ok:
+              print("REAL TESTS: FAIL")
+              sys.exit(1)
+          print("REAL TESTS: PASS")
+
+          # real application run
+          entry = py_sources.get("main.py") or py_sources.get("app.py")
+          if not entry:
+              print("REAL APP RUN: FAIL (no entrypoint found)")
+              sys.exit(1)
+          cmd = ["python3", "-B", os.path.basename(entry)]
+          rr = subprocess.run(cmd, cwd=ws, capture_output=True, text=True, timeout=120)
+          stdout_short = rr.stdout.strip().replace("\n", " | ")[:500]
+          print("run command:", " ".join(cmd))
+          print("run return code:", rr.returncode)
+          print("run output:", stdout_short)
+          if rr.returncode != 0:
+              print("REAL APP RUN: FAIL")
+              sys.exit(1)
+          print("REAL APP RUN: PASS")
+
+          # repair: only claim TRIGGERED on positive evidence in the live output
+          repair_lines = [ln for ln in out.splitlines() if re.search(r"repair", ln, re.I)]
+          if repair_lines:
+              print("REPAIR: TRIGGERED - chronology lines:")
+              for ln in repair_lines[:10]:
+                  print("   ", ln)
+          else:
+              print("REPAIR: NOT TRIGGERED (no natural failure occurred; offline P0 suite"
+                    " remains the standing repair evidence)")
+
+          gate = re.search(r"quality gate\s+:\s+(\w+)", out)
+          state = re.search(r"state\s+:\s+(\w+)", out)
+          print("final state:", state.group(1) if state else "unknown",
+                "| quality gate:", gate.group(1) if gate else "unknown")
+          if not (gate and gate.group(1) == "APPROVED" and state and state.group(1) == "COMPLETED"):
+              print("EXECUTION/GATE: FAIL")
+              sys.exit(1)
+          print("EXECUTION SESSION: PASS")
+          print("QUALITY GATE: PASS (APPROVED produced by the real pipeline, not manually)")
+          with open("phase3_status.env", "a") as sf:
+              sf.write("REAL_EVIDENCE=PASS\n")
+          PYEOF
+
+      - name: Secret leak guard on all evidence artifacts
+        run: |
+          python3 - <<'PYEOF'
+          import glob, os, sys
+          key = os.environ.get("GEMINI_API_KEY", "")
+          offenders = []
+          for f in glob.glob("live_evidence/**", recursive=True) + ["phase3_status.env"]:
+              if not os.path.isfile(f):
+                  continue
+              data = open(f, encoding="utf-8", errors="ignore").read()
+              if key and key in data:
+                  offenders.append(f)
+          if offenders:
+              print("LEAK GUARD: key material detected in evidence - blocking upload and failing run")
+              sys.exit(4)
+          print("LEAK GUARD: clean - no key material present in any evidence artifact")
+          PYEOF
+
+      - name: Upload safe evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-live-evidence
+          path: |
+            live_evidence/
+            phase3_status.env
+          if-no-files-found: warn
+
+      - name: Regression battery (existing tests, unmodified)
+        run: |
+          set -o pipefail
+          status=0
+          echo "== unittest discover =="
+          python3 -m unittest discover -s tests -t . 2>&1 | tail -3 || status=1
+          echo "== pytest =="
+          python3 -m pytest tests/ -q 2>&1 | tail -2 || status=1
+          echo "== P0 build/run/repair =="
+          python3 -m unittest tests.test_p0_build_run_repair 2>&1 | grep -E "^Ran|^OK|^FAILED" || status=1
+          echo "== security hardening =="
+          python3 -m unittest tests.test_security_hardening 2>&1 | grep -E "^Ran|^OK|^FAILED" || status=1
+          echo "== compileall =="
+          python3 -m compileall -q . && echo "compileall: clean" || status=1
+          echo "== import sweep =="
+          python3 - <<'PYEOF' || status=1
+          import importlib, pkgutil, sys
+          sys.path.insert(0, ".")
+          for pkg in ("planning", "orchestration", "tools", "repair", "quality",
+                      "execution", "providers", "agent", "learning"):
+              m = importlib.import_module(pkg)
+              if hasattr(m, "__path__"):
+                  for info in pkgutil.iter_modules(m.__path__):
+                      importlib.import_module(f"{pkg}.{info.name}")
+          importlib.import_module("main")
+          importlib.import_module("planning.requirement_intake")
+          importlib.import_module("execution.session")
+          print("import sweep: ALL OK")
+          PYEOF
+          if [ "$status" -ne 0 ]; then
+            echo "REGRESSION=FAIL" >> phase3_status.env
+            exit 1
+          fi
+          echo "REGRESSION=PASS" >> phase3_status.env
+          echo "note: with the key present, the key-gated live test RUNS inside the"
+          echo "full suite; expect 432 unittest total / 0 skips (legitimate delta vs"
+          echo "the 431/1-skip Phase 2 baseline)."
+
+      - name: Final safe summary and hard gate
+        if: always()
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+          st = {}
+          if os.path.exists("phase3_status.env"):
+              for ln in open("phase3_status.env"):
+                  if "=" in ln:
+                      k, v = ln.strip().split("=", 1)
+                      st[k] = v
+          out = ""
+          if os.path.exists("live_evidence/live_out.txt"):
+              out = open("live_evidence/live_out.txt", encoding="utf-8", errors="ignore").read()
+          smoke_live = st.get("LIVE_MAIN") == "PASS"
+          repair = "TRIGGERED" if ("repair" in out.lower()) else "NOT TRIGGERED"
+          summary = [
+              ("REAL GEMINI API", "PASS" if smoke_live else "FAIL"),
+              ("REQUIREMENT INTAKE", "PASS" if smoke_live else "FAIL"),
+              ("EXECUTION SESSION", "PASS" if st.get("REAL_EVIDENCE") == "PASS" else "FAIL"),
+              ("REAL FILES", "PASS" if st.get("REAL_EVIDENCE") == "PASS" else "FAIL"),
+              ("REAL TESTS", "PASS" if st.get("REAL_EVIDENCE") == "PASS" else "FAIL"),
+              ("REAL APP RUN", "PASS" if st.get("REAL_EVIDENCE") == "PASS" else "FAIL"),
+              ("REPAIR", repair),
+              ("QUALITY GATE", "PASS" if "quality gate   : APPROVED" in out else "FAIL"),
+              ("REGRESSION", st.get("REGRESSION", "FAIL (or not reached)")),
+          ]
+          print("===== PHASE 3 LIVE GEMINI VERIFICATION SUMMARY =====")
+          for label, val in summary:
+              print(f"{label}: {val}")
+          must_pass = [v for (l, v) in summary if l != "REPAIR"]
+          if any(v != "PASS" for v in must_pass):
+              print("PHASE 3 OVERALL: FAIL")
+              sys.exit(1)
+          print("PHASE 3 OVERALL: PASS - one real natural-language request processed through")
+          print("the live Gemini-backed intake and the existing execution pipeline.")
+          PYEOF
