@@ -1,0 +1,13 @@
+# Environment / secrets - never commit
+.env
+.env.*
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Project runtime artifacts
+project_memory.json
+memory_*.json

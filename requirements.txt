@@ -1,0 +1,8 @@
+# Omega Brain — runtime dependencies
+# requests: required by providers/claude_provider.py (Claude REST API client).
+# This is the ONLY third-party runtime dependency; everything else is stdlib.
+requests>=2.31
+
+# Dev-only (optional): the test suite runs under stdlib unittest, but pytest
+# works too if present (python3 -m pytest tests/ -q).
+# pytest>=7
