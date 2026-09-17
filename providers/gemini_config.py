@@ -61,7 +61,7 @@ class GeminiConfig:
     api_key_env_var: str = "GEMINI_API_KEY"
     model: str = None
     default_model: str = "gemini-3.8-flash"
-    timeout_seconds: float = 30.0
+    timeout_seconds: float = 120.0
     max_tokens: int = 2048
     temperature: float = None
     base_url: str = "https://generativelanguage.googleapis.com"
@@ -71,7 +71,7 @@ class GeminiConfig:
     def from_env(cls) -> "GeminiConfig":
         return cls(
             model=os.environ.get("GEMINI_MODEL"),
-            timeout_seconds=_positive_float_env("GEMINI_TIMEOUT_SECONDS", 30.0),
+            timeout_seconds=_positive_float_env("GEMINI_TIMEOUT_SECONDS", 120.0),
             max_tokens=_positive_int_env("GEMINI_MAX_TOKENS", 2048),
             temperature=_optional_float_env("GEMINI_TEMPERATURE"),
         )
