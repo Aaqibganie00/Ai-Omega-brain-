@@ -44,6 +44,19 @@ from .errors import (
 class GeminiProvider(AIProvider):
     name = "gemini"
 
+    # ---- bounded transient-retry policy ----
+    # Only transient failures are retried: request timeouts, connection errors,
+    # HTTP 429 and HTTP 5xx. Deterministic failures - missing key, auth errors
+    # (401/403), malformed responses, prompt/safety blocks - are raised on the
+    # first attempt, because retrying them can only burn quota. Backoff is
+    # exponential and always capped, so one bad minute at the API can never
+    # stall the caller indefinitely.
+    MAX_ATTEMPTS = 4                    # 1 initial attempt + 3 retries
+    INITIAL_BACKOFF_SECONDS = 0.5
+    BACKOFF_MULTIPLIER = 2.0
+    MAX_BACKOFF_SECONDS = 8.0
+    RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+
     # Gemini finishReason -> existing FinishReason enum. The enum has no
     # content-filter value, so safety stops map to UNKNOWN and are flagged
     # via raw_metadata["safety_blocked"].
@@ -79,25 +92,56 @@ class GeminiProvider(AIProvider):
         }
         timeout = request.timeout_seconds or self.config.timeout_seconds
 
-        start = time.time()
-        try:
-            resp = requests.post(
-                self._endpoint(),
-                json=payload,
-                headers=headers,
-                timeout=timeout,
-            )
-        except requests.exceptions.Timeout:
-            raise ProviderTimeoutError(self.name, timeout)
-        except requests.exceptions.ConnectionError:
-            # deliberately generic - raw connection errors can echo request
-            # internals that must never leak
-            raise NetworkError(self.name, "connection failed")
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(self.name, type(e).__name__)
+        last_error = None
+        for attempt in range(1, self.MAX_ATTEMPTS + 1):
+            if attempt > 1:
+                time.sleep(self._retry_delay(attempt, last_error))
 
-        latency = time.time() - start
-        return self._parse_response(resp, request, latency)
+            attempt_start = time.time()
+            try:
+                resp = requests.post(
+                    self._endpoint(),
+                    json=payload,
+                    headers=headers,
+                    timeout=timeout,
+                )
+            except requests.exceptions.Timeout:
+                last_error = ProviderTimeoutError(self.name, timeout)
+                continue
+            except requests.exceptions.ConnectionError:
+                # deliberately generic - raw connection errors can echo request
+                # internals that must never leak
+                last_error = NetworkError(self.name, "connection failed")
+                continue
+            except requests.exceptions.RequestException as e:
+                last_error = NetworkError(self.name, type(e).__name__)
+                continue
+
+            latency = time.time() - attempt_start
+            try:
+                return self._parse_response(resp, request, latency)
+            except (RateLimitError, ProviderUnavailableError) as e:
+                # _parse_response also raises ProviderUnavailableError for
+                # safety-blocked prompts at HTTP 200; the status check keeps
+                # that deterministic case out of the retry loop.
+                if resp.status_code not in self.RETRYABLE_STATUS_CODES:
+                    raise
+                last_error = e
+
+        raise last_error
+
+    def _retry_delay(self, attempt: int, last_error) -> float:
+        """Seconds to wait before `attempt` (1-based) after `last_error`.
+
+        An explicit Retry-After from the API wins over the local backoff, but
+        is still capped so a hostile/large value cannot stall the process.
+        """
+        if isinstance(last_error, RateLimitError) and last_error.retry_after is not None:
+            return min(float(last_error.retry_after), self.MAX_BACKOFF_SECONDS)
+        backoff = self.INITIAL_BACKOFF_SECONDS * (
+            self.BACKOFF_MULTIPLIER ** (attempt - 2)
+        )
+        return min(backoff, self.MAX_BACKOFF_SECONDS)
 
     # ---- endpoint / payload ----
 

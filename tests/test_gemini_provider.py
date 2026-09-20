@@ -114,7 +114,7 @@ class TestGeminiConfig(unittest.TestCase):
             key = cfg.api_key
         self.assertIsNone(key)
         self.assertEqual(cfg.resolved_model, "gemini-3.8-flash")
-        self.assertEqual(cfg.timeout_seconds, 30.0)
+        self.assertEqual(cfg.timeout_seconds, 120.0)
         self.assertEqual(cfg.max_tokens, 2048)
         self.assertIsNone(cfg.temperature)
 
@@ -469,6 +469,11 @@ class TestGeminiErrorMapping(unittest.TestCase):
 
     def setUp(self):
         self.provider = make_provider()
+        # Transient failures are retried with backoff; freeze the clock so
+        # these assertions stay instant instead of sleeping in real time.
+        patcher = patch("providers.gemini_provider.time.sleep")
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _generate_with(self, response=None, side_effect=None):
         with patch("providers.gemini_provider.requests.post") as mock_post:
@@ -536,6 +541,10 @@ class TestGeminiSecretSafety(unittest.TestCase):
 
     def setUp(self):
         self.provider = make_provider()
+        # Keep the retry backoff out of wall-clock time for failure cases.
+        patcher = patch("providers.gemini_provider.time.sleep")
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_key_only_in_header_never_in_url(self):
         with patch("providers.gemini_provider.requests.post") as mock_post:

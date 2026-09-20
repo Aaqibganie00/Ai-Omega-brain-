@@ -83,12 +83,19 @@ only in the `x-goog-api-key` header, never in the URL):
 |---|---|---|
 | `GEMINI_API_KEY` | yes (real calls) | — |
 | `GEMINI_MODEL` | no | `gemini-3.8-flash` |
-| `GEMINI_TIMEOUT_SECONDS` | no | `30.0` (must be > 0) |
+| `GEMINI_TIMEOUT_SECONDS` | no | `120.0` (must be > 0) |
 | `GEMINI_MAX_TOKENS` | no | `2048` (must be a positive integer) |
 | `GEMINI_TEMPERATURE` | no | unset (must be >= 0) |
 
 Invalid numeric values fail fast at `GeminiConfig.from_env()`. Missing keys
 raise `MissingAPIKeyError` naming the variable, never its value.
+
+Transient Gemini failures - request timeouts, connection errors, HTTP 429 and
+HTTP 5xx - are retried up to 3 times with exponential backoff (0.5s, 1s, 2s).
+A `Retry-After` header is honored but capped at 8s. Deterministic failures
+(401/403, malformed responses, safety-blocked prompts) fail on the first
+attempt. Retry tuning lives on `GeminiProvider.MAX_ATTEMPTS`,
+`INITIAL_BACKOFF_SECONDS`, `BACKOFF_MULTIPLIER` and `MAX_BACKOFF_SECONDS`.
 
 ## P0 core behaviors (orchestration truth)
 
