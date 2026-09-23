@@ -1,16 +1,17 @@
-# Phase 2: persistence and authentication
-
-The web app now uses Prisma with PostgreSQL. Set `DATABASE_URL`, `NEXTAUTH_URL`, and `NEXTAUTH_SECRET` from `.env.example`, then run:
+# Phase 2 uses PostgreSQL through Prisma.
 
 ```bash
+cp .env.example .env
 npm install
-npm run db:generate
-npm run db:push
-npm run dev
+npx prisma validate
+npx prisma generate
+npm run db:migrate
+npm run typecheck
+npm test
+npm run lint
+npm run build
 ```
 
-Email/password signup is available at `POST /api/auth/signup`; sign-in/sign-out use NextAuth's credentials provider at `/api/auth/*`. The dashboard APIs require a server-side NextAuth session. Passwords are bcrypt-hashed and no password or provider secret is returned to clients.
+`DATABASE_URL` must point to a PostgreSQL database. `NEXTAUTH_URL` and a long random `NEXTAUTH_SECRET` are required for authentication. The committed migration is `prisma/migrations/0001_init/migration.sql`; deployments should use `npx prisma migrate deploy`.
 
-Every project query includes `ownerId`. Project deletion cascades tasks, memory, and activity events through Prisma relations. Task creation validates input, verifies project ownership, persists the task, and records `task.created`.
-
-The implementation intentionally does not add model calls, autonomous execution, terminal access, sandboxing, vector memory, GitHub automation, or paid infrastructure.
+The integration suite is skipped when `DATABASE_URL` is absent and runs real Prisma persistence tests when a test database is configured. It does not replace database-backed tests with mocks.

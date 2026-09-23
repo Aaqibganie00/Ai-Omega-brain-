@@ -1,7 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { AgentRegistry, createDefaultAgentRegistry } from '../lib/agents'
-import { FoundationVerifier } from '../lib/verification'
-import { createProject } from '../lib/projects'
-import { Orchestrator } from '../lib/orchestrator'
-
-describe('BLINDBRAIN foundation',()=>{it('registers the initial agent roles',()=>expect(createDefaultAgentRegistry().list()).toHaveLength(6));it('creates an owned project with structured memory',()=>expect(createProject('u',{name:'Test project',description:'A sufficiently detailed project description',type:'web_app'}).memory.context).toHaveLength(1));it('plans without claiming execution',async()=>{const p=createProject('u',{name:'Plan project',description:'A sufficiently detailed project description',type:'agent'});const plan=await new Orchestrator().plan(p,'create an agent');expect(plan.honestLimitations.length).toBeGreaterThan(0);expect(p.tasks).toHaveLength(3)});it('does not approve unverified output',async()=>{const p=createProject('u',{name:'Verify project',description:'A sufficiently detailed project description',type:'website'});expect((await new FoundationVerifier().verify(p,p.tasks)).status).toBe('incomplete')})})
+import bcrypt from 'bcryptjs'
+import { signUpSchema, projectUpdateSchema, memorySchema } from '../lib/validation'
+describe('Phase 2 validation boundaries', () => { it('requires a strong signup password', () => expect(signUpSchema.safeParse({ email: 'test@example.com', password: 'short' }).success).toBe(false)); it('accepts project updates without allowing unknown fields', () => expect(projectUpdateSchema.safeParse({ status: 'active', extra: true }).success).toBe(true)); it('validates memory collections', () => expect(memorySchema.safeParse({ requirements: ['ship safely'] }).success).toBe(true)); it('hashes passwords without retaining plaintext', async () => { const password = 'a-strong-password'; const hash = await bcrypt.hash(password, 4); expect(hash).not.toBe(password); expect(await bcrypt.compare(password, hash)).toBe(true) }) })

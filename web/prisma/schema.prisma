@@ -11,60 +11,60 @@ enum ProjectType { website web_app mobile_prototype game_2d game_3d backend agen
 enum ProjectStatus { draft planning active paused completed failed }
 enum TaskStatus { pending planning running waiting testing failed completed }
 
-a model User {
-  id           String         @id @default(cuid())
-  email        String         @unique
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   projects     Project[]
 }
 
 model Project {
-  id        String         @id @default(cuid())
-  ownerId   String
-  name      String
+  id          String         @id @default(cuid())
+  ownerId     String
+  name        String
   description String
-  type      ProjectType
-  status    ProjectStatus   @default(draft)
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-  owner     User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  tasks     Task[]
-  memory    ProjectMemory?
-  events    ActivityEvent[]
+  type        ProjectType
+  status      ProjectStatus  @default(draft)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+  memory      ProjectMemory?
+  events      ActivityEvent[]
   @@index([ownerId, updatedAt])
 }
 
 model Task {
-  id           String     @id @default(cuid())
-  projectId    String
-  title        String
-  description  String     @default("")
-  status       TaskStatus @default(pending)
+  id            String     @id @default(cuid())
+  projectId     String
+  title         String
+  description   String     @default("")
+  status        TaskStatus @default(pending)
   assignedAgent String?
-  dependencies String[]
-  input        Json?
-  output       Json?
-  error        Json?
-  retryCount   Int        @default(0)
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  dependencies  String[]
+  input         Json?
+  output        Json?
+  error         Json?
+  retryCount    Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
   @@index([projectId, status])
 }
 
 model ProjectMemory {
-  id              String   @id @default(cuid())
-  projectId       String   @unique
-  requirements    String[]
-  decisions       String[]
-  context         String[]
-  completedWork   String[]
+  id               String   @id @default(cuid())
+  projectId        String   @unique
+  requirements     String[]
+  decisions        String[]
+  context          String[]
+  completedWork    String[]
   unresolvedIssues String[]
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model ActivityEvent {
