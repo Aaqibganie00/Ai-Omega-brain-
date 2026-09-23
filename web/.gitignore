@@ -1,0 +1,6 @@
+# Prisma is generated at install/migration time
+node_modules/
+.next/
+.env
+.env.*
+!.env.example

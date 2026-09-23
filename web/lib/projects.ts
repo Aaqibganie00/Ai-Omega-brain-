@@ -1,45 +1,12 @@
-import { randomUUID } from 'crypto'
 import type { Project, ProjectStatus, ProjectType, Task, ActivityEvent } from './domain'
+import { prisma } from './prisma'
 
 type ProjectInput = { name: string; description: string; type: ProjectType }
-const projects = new Map<string, Project>()
-
-export function listProjects(ownerId: string): Project[] {
-  return [...projects.values()].filter((project) => project.ownerId === ownerId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-}
-
-export function getProject(ownerId: string, id: string): Project | undefined {
-  const project = projects.get(id)
-  return project?.ownerId === ownerId ? project : undefined
-}
-
-export function createProject(ownerId: string, input: ProjectInput): Project {
-  const now = new Date().toISOString()
-  const project: Project = {
-    id: randomUUID(), ownerId, ...input, status: 'draft', createdAt: now, updatedAt: now,
-    memory: { context: [input.description], decisions: [], requirements: [], unresolvedIssues: [] },
-    tasks: [], activity: [], artifacts: [],
-  }
-  projects.set(project.id, project)
-  return project
-}
-
-export function addActivity(project: Project, event: Omit<ActivityEvent, 'id' | 'createdAt' | 'projectId'>): ActivityEvent {
-  const item = { ...event, id: randomUUID(), projectId: project.id, createdAt: new Date().toISOString() }
-  project.activity.unshift(item)
-  project.updatedAt = item.createdAt
-  return item
-}
-
-export function addTask(project: Project, title: string, assignedAgent?: string): Task {
-  const now = new Date().toISOString()
-  const task: Task = { id: randomUUID(), projectId: project.id, title, status: 'pending', dependencies: [], assignedAgent, retryCount: 0, createdAt: now, updatedAt: now }
-  project.tasks.push(task)
-  project.updatedAt = now
-  return task
-}
-
-export function setProjectStatus(project: Project, status: ProjectStatus): void {
-  project.status = status
-  project.updatedAt = new Date().toISOString()
-}
+const includeProject = { tasks: true, memory: true, events: { orderBy: { createdAt: 'desc' as const } } }
+function mapProject(row: any): Project { return { ...row, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(), memory: row.memory ?? { context: [], decisions: [], requirements: [], completedWork: [], unresolvedIssues: [] }, tasks: row.tasks.map((task: any) => ({ ...task, createdAt: task.createdAt.toISOString(), updatedAt: task.updatedAt.toISOString() })), activity: row.events.map((event: any) => ({ ...event, metadata: event.metadata ?? {}, createdAt: event.createdAt.toISOString() })), artifacts: [] } }
+export async function listProjects(ownerId: string) { return (await prisma.project.findMany({ where: { ownerId }, include: includeProject, orderBy: { updatedAt: 'desc' } })).map(mapProject) }
+export async function getProject(ownerId: string, id: string) { const project = await prisma.project.findFirst({ where: { id, ownerId }, include: includeProject }); return project ? mapProject(project) : undefined }
+export async function createProject(ownerId: string, input: ProjectInput) { const project = await prisma.project.create({ data: { ownerId, ...input, memory: { create: { context: [input.description], decisions: [], requirements: [], completedWork: [], unresolvedIssues: [] } }, events: { create: { type: 'project.created', actor: ownerId, message: 'Project created', metadata: {} } } }, include: includeProject }); return mapProject(project) }
+export async function updateProject(ownerId: string, id: string, input: Partial<ProjectInput> & { status?: ProjectStatus }) { const project = await prisma.project.updateMany({ where: { id, ownerId }, data: input }); if (!project.count) return undefined; return getProject(ownerId, id) }
+export async function deleteProject(ownerId: string, id: string) { const result = await prisma.project.deleteMany({ where: { id, ownerId } }); return result.count > 0 }
+export async function addTask(ownerId: string, projectId: string, input: { title: string; description: string; assignedAgent?: string; dependencies: string[] }) { const project = await prisma.project.findFirst({ where: { id: projectId, ownerId }, select: { id: true } }); if (!project) return undefined; const task = await prisma.task.create({ data: { projectId, ...input }, }); await prisma.activityEvent.create({ data: { projectId, type: 'task.created', actor: ownerId, message: 'Task created', metadata: { taskId: task.id } } }); return task }
