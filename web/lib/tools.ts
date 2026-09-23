@@ -1,0 +1,4 @@
+export type ToolContext={projectId:string; requestedBy:string}
+export type ToolDefinition={id:string; description:string; risk:'safe'|'restricted'; execute(input:unknown,context:ToolContext):Promise<unknown>}
+export class ToolRegistry { private readonly tools=new Map<string,ToolDefinition>(); register(tool:ToolDefinition){this.tools.set(tool.id,tool);return this} get(id:string){return this.tools.get(id)} list(){return [...this.tools.values()]} }
+export function createDefaultToolRegistry():ToolRegistry { return new ToolRegistry().register({id:'project_context',description:'Read structured project context',risk:'safe',async execute(_input,context){return {projectId:context.projectId}}}).register({id:'sandbox_execution',description:'Reserved isolated sandbox execution boundary',risk:'restricted',async execute(){throw new Error('SANDBOX_NOT_CONFIGURED')}}) }

@@ -1,0 +1,4 @@
+import type { Project, Task } from './domain'
+import { addActivity, addTask, setProjectStatus } from './projects'
+export type OrchestrationPlan={taskTitles:string[]; agentIds:string[]; modelId:string; toolIds:string; honestLimitations:string[]}
+export class Orchestrator { async plan(project:Project,objective:string):Promise<OrchestrationPlan>{ setProjectStatus(project,'planning'); addActivity(project,{type:'PLAN_CREATED',actor:'orchestrator',message:'Created a foundation plan; execution is not implied.',metadata:{objective}}); const titles=['Understand requirements','Define architecture','Prepare verification criteria']; titles.forEach((title,i)=>addTask(project,title,['planner','coder','critic'][i])); return {taskTitles:titles,agentIds:['planner','coder','critic'],modelId:'mock-foundation',toolIds:'project_context',honestLimitations:['No model call or code execution occurs until an adapter is configured']}} }
