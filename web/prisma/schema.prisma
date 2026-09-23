@@ -10,6 +10,8 @@ datasource db {
 enum ProjectType { website web_app mobile_prototype game_2d game_3d backend agent automation data }
 enum ProjectStatus { draft planning active paused completed failed }
 enum TaskStatus { pending planning running waiting testing failed completed }
+enum AgentRunStatus { queued running completed failed blocked }
+enum ExecutionStatus { queued running succeeded failed timed_out rejected }
 
 model User {
   id           String    @id @default(cuid())
@@ -19,41 +21,42 @@ model User {
   updatedAt    DateTime  @updatedAt
   projects     Project[]
 }
-
 model Project {
-  id          String         @id @default(cuid())
+  id          String             @id @default(cuid())
   ownerId     String
   name        String
   description String
   type        ProjectType
-  status      ProjectStatus  @default(draft)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  status      ProjectStatus      @default(draft)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  owner       User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   tasks       Task[]
   memory      ProjectMemory?
   events      ActivityEvent[]
+  agentRuns   AgentRun[]
+  executions  ExecutionRecord[]
   @@index([ownerId, updatedAt])
 }
-
 model Task {
-  id            String     @id @default(cuid())
+  id            String             @id @default(cuid())
   projectId     String
   title         String
-  description   String     @default("")
-  status        TaskStatus @default(pending)
+  description   String             @default("")
+  status        TaskStatus         @default(pending)
   assignedAgent String?
   dependencies  String[]
   input         Json?
   output        Json?
   error         Json?
-  retryCount    Int        @default(0)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  project       Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  retryCount    Int                @default(0)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  project       Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  agentRuns     AgentRun[]
+  executions    ExecutionRecord[]
   @@index([projectId, status])
 }
-
 model ProjectMemory {
   id               String   @id @default(cuid())
   projectId        String   @unique
@@ -66,7 +69,6 @@ model ProjectMemory {
   updatedAt        DateTime @updatedAt
   project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
-
 model ActivityEvent {
   id        String   @id @default(cuid())
   projectId String
@@ -77,4 +79,48 @@ model ActivityEvent {
   createdAt DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   @@index([projectId, createdAt])
+}
+model AgentRun {
+  id          String        @id @default(cuid())
+  projectId   String
+  taskId      String?
+  agentId     String
+  role        String
+  status      AgentRunStatus @default(queued)
+  input       Json?
+  output      Json?
+  error       Json?
+  metadata    Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  executions  ExecutionRecord[]
+  @@index([projectId, createdAt])
+  @@index([taskId])
+}
+model ExecutionRecord {
+  id          String          @id @default(cuid())
+  agentRunId  String?
+  projectId   String
+  taskId      String?
+  kind        String
+  status      ExecutionStatus @default(queued)
+  stdout      String?
+  stderr      String?
+  exitCode    Int?
+  durationMs  Int?
+  error       Json?
+  metadata    Json?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  agentRun    AgentRun?       @relation(fields: [agentRunId], references: [id], onDelete: SetNull)
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task        Task?           @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  @@index([projectId, createdAt])
+  @@index([agentRunId])
 }

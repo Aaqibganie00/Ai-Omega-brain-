@@ -1,0 +1,7 @@
+import { Prisma } from '@prisma/client'
+import { AppError } from './errors'
+import { prisma } from './prisma'
+export async function authorizeProject(ownerId: string, projectId: string) { const project = await prisma.project.findFirst({ where: { id: projectId, ownerId }, select: { id: true } }); if (!project) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: 'Resource not found.', category: 'validation', retryable: false }); return project }
+export async function authorizeTask(ownerId: string, projectId: string, taskId: string) { await authorizeProject(ownerId, projectId); const task = await prisma.task.findFirst({ where: { id: taskId, projectId }, select: { id: true, projectId: true } }); if (!task) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: 'Resource not found.', category: 'validation', retryable: false }); return task }
+export async function authorizeAgentRun(ownerId: string, projectId: string, agentRunId: string) { await authorizeProject(ownerId, projectId); const run = await prisma.agentRun.findFirst({ where: { id: agentRunId, projectId }, select: { id: true, projectId: true, taskId: true, status: true } }); if (!run) throw new AppError({ code: 'RESOURCE_NOT_FOUND', message: 'Resource not found.', category: 'validation', retryable: false }); return run }
+export function asJson(value: unknown): Prisma.InputJsonValue | undefined { return value === undefined ? undefined : value as Prisma.InputJsonValue }

@@ -1,13 +1,7 @@
 # Phase 3 execution foundation
 
-Phase 3 adds provider-neutral server-side contracts without enabling arbitrary execution.
+Phase 3 is integrated into the canonical Prisma schema. `AgentRun` and `ExecutionRecord` are persisted with owner-scoped project/task relations. The execution boundary remains fail-closed: no shell, filesystem, network, sandbox, model, GitHub, or autonomous execution is enabled.
 
-- `lib/agent-runtime.ts`: generic agent input/output, registry, and explicitly blocked foundation agents.
-- `lib/execution.ts`: controlled executor request/result contracts, limits, and fail-closed executor.
-- `lib/verification-runtime.ts`: build/test verification interfaces that require execution evidence.
-- `lib/runtime-persistence.ts`: owner-scoped persistence for agent runs and execution records.
-- `lib/orchestrator-foundation.ts`: Plan → Execute → Build → Test → Verify plan representation.
+`agent-runtime.ts` defines provider-neutral agents and an explicit state machine. `execution.ts` defines bounded execution policy, a rejecting executor, and execution transitions. `authorization.ts` validates project/task/agent-run relationships. `runtime-persistence.ts` persists only authorized records and emits typed agent lifecycle events. `tools-runtime.ts` exposes disabled metadata-only tool definitions. `verification-runtime.ts` evaluates supplied evidence only. `orchestrator-foundation.ts` represents Plan → Execute → Build → Test → Verify without running it.
 
-The Prisma additions are represented in `prisma/phase3-schema-additions.prisma` and the migration SQL at `prisma/migrations/0002_execution_foundation/migration.sql`. The canonical Prisma schema remains unchanged in this phase because the additions are intentionally isolated until migration/runtime validation is available. No public execution API is exposed. `RejectingExecutor` fails closed, network is disabled by default, and every persistence operation requires the authenticated project owner.
-
-This phase does not add model APIs, shell execution, filesystem access, sandboxing, GitHub automation, self-repair, or autonomous coding.
+Before deployment, run `npx prisma validate`, `npx prisma generate`, `npx prisma migrate deploy`, `npm run typecheck`, `npm test`, `npm run lint`, and `npm run build` in an environment with PostgreSQL configured. Runtime validation was not performed by this change.

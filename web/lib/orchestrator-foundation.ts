@@ -1,4 +1,5 @@
-import { createDefaultAgentRegistry, type AgentRegistry } from './agent-runtime'
-import { defaultExecutionLimits, RejectingExecutor, type ControlledExecutor } from './execution'
+import type { AgentRegistry } from './agent-runtime'
+import { createDefaultAgentRegistry } from './agent-runtime'
+import { defaultExecutionLimits, type ControlledExecutor, RejectingExecutor } from './execution'
 export type PlanStep = { id: string; kind: 'plan' | 'execute' | 'build' | 'test' | 'verify'; description: string; requiresApproval: boolean }
 export class OrchestratorFoundation { constructor(readonly agents: AgentRegistry = createDefaultAgentRegistry(), readonly executor: ControlledExecutor = new RejectingExecutor(), readonly limits = defaultExecutionLimits) {} plan(objective: string): PlanStep[] { return [{ id: 'understand', kind: 'plan', description: objective, requiresApproval: true }, { id: 'execute', kind: 'execute', description: 'Execute through an explicitly configured tool adapter.', requiresApproval: true }, { id: 'build', kind: 'build', description: 'Build and collect evidence.', requiresApproval: true }, { id: 'test', kind: 'test', description: 'Test and collect evidence.', requiresApproval: true }, { id: 'verify', kind: 'verify', description: 'Verify evidence before reporting.', requiresApproval: true }] } }
