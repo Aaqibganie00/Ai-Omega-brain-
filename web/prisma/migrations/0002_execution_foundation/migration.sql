@@ -1,5 +1,3 @@
-ALTER TABLE "Project" ADD COLUMN IF NOT EXISTS "phase3_placeholder" BOOLEAN NOT NULL DEFAULT FALSE;
-
 CREATE TYPE "AgentRunStatus" AS ENUM ('queued', 'running', 'completed', 'failed', 'blocked');
 CREATE TYPE "ExecutionStatus" AS ENUM ('queued', 'running', 'succeeded', 'failed', 'timed_out', 'rejected');
 
@@ -27,7 +25,6 @@ CREATE TABLE "ExecutionRecord" (
   "taskId" TEXT,
   "kind" TEXT NOT NULL,
   "status" "ExecutionStatus" NOT NULL DEFAULT 'queued',
-  "command" TEXT,
   "stdout" TEXT,
   "stderr" TEXT,
   "exitCode" INTEGER,
